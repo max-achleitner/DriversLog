@@ -20,6 +20,7 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "DriversLog benoetigt dauerhaften Standort-Zugriff, um Fahrten automatisch zu erkennen, wenn du deine Homezone verlaesst.",
         "NSLocationAlwaysUsageDescription": "DriversLog benoetigt dauerhaften Standort-Zugriff, um Fahrten automatisch zu erkennen, wenn du deine Homezone verlaesst.",
         "UIBackgroundModes": [
+          "location",
           "location"
         ]
       }
@@ -31,6 +32,11 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
@@ -59,6 +65,12 @@
         "projectId": "52fa361e-b7bb-44a2-94d4-d17adb10629e"
       }
     },
-    "owner": "kompetenzexe"
+    "owner": "kompetenzexe",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/52fa361e-b7bb-44a2-94d4-d17adb10629e"
+    }
   }
 }
