@@ -128,14 +128,19 @@ create policy "routes_delete_own"
 -- Besondere Orte entlang einer Route
 -- ============================================================
 create table public.waypoints (
-  id         uuid default gen_random_uuid() primary key,
-  route_id   uuid references public.routes(id) on delete cascade not null,
-  lat        double precision not null,
-  lng        double precision not null,
-  note       text,
-  photo_url  text,
-  sort_order integer default 0 not null,
-  created_at timestamptz default now() not null
+  id          uuid default gen_random_uuid() primary key,
+  route_id    uuid references public.routes(id) on delete cascade not null,
+  lat         double precision not null,
+  lng         double precision not null,
+  note        text,
+  photo_url   text,
+  type        text check (type in ('PHOTO_SPOT','FOOD','PARKING_SAFE','FUEL_HIGH_OCTANE','SOUND_TUNNEL','DRIVING_HIGHLIGHT')),
+  rating      smallint check (rating >= 1 and rating <= 5),
+  media_url   text,
+  description text,
+  tags        text[],
+  sort_order  integer default 0 not null,
+  created_at  timestamptz default now() not null
 );
 
 alter table public.waypoints enable row level security;
@@ -178,6 +183,28 @@ create policy "waypoints_delete_own"
       where r.id = route_id and auth.uid() = r.user_id
     )
   );
+
+-- ============================================================
+-- 5. STORAGE — Waypoint Photos
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('waypoint-photos', 'waypoint-photos', true)
+on conflict (id) do nothing;
+
+-- Authentifizierte User duerfen Bilder hochladen
+create policy "waypoint_photos_insert"
+  on storage.objects for insert
+  with check (bucket_id = 'waypoint-photos' and auth.role() = 'authenticated');
+
+-- Jeder darf Bilder sehen (oeffentlicher Bucket)
+create policy "waypoint_photos_select"
+  on storage.objects for select
+  using (bucket_id = 'waypoint-photos');
+
+-- Nur eigene Dateien loeschen (Pfad beginnt mit user_id)
+create policy "waypoint_photos_delete"
+  on storage.objects for delete
+  using (bucket_id = 'waypoint-photos' and auth.uid()::text = (storage.foldername(name))[1]);
 
 -- ============================================================
 -- INDEXES fuer Performance

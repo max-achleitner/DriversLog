@@ -37,6 +37,15 @@ export interface Route {
   created_at: string;
 }
 
+/** Smart-Stop Typen */
+export type WaypointType =
+  | 'PHOTO_SPOT'
+  | 'FOOD'
+  | 'PARKING_SAFE'
+  | 'FUEL_HIGH_OCTANE'
+  | 'SOUND_TUNNEL'
+  | 'DRIVING_HIGHLIGHT';
+
 /** Besonderer Ort entlang einer Route */
 export interface Waypoint {
   id: string;
@@ -45,6 +54,11 @@ export interface Waypoint {
   lng: number;
   note: string | null;
   photo_url: string | null;
+  type: WaypointType | null;
+  rating: number | null;
+  media_url: string | null;
+  description: string | null;
+  tags: string[] | null;
   sort_order: number;
   created_at: string;
 }
@@ -93,6 +107,11 @@ export interface WaypointInsert {
   lng: number;
   note?: string | null;
   photo_url?: string | null;
+  type?: WaypointType | null;
+  rating?: number | null;
+  media_url?: string | null;
+  description?: string | null;
+  tags?: string[] | null;
   sort_order?: number;
 }
 
