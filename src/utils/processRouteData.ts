@@ -3,15 +3,21 @@ import { haversineKm } from './geo';
 
 const HOME_ZONE_KM = 0.5;
 
-interface RawRecordingData {
+interface RecordingWaypointBase {
+  lat: number;
+  lng: number;
+  timestamp: number;
+}
+
+interface RawRecordingData<W extends RecordingWaypointBase = RecordingWaypointBase> {
   points: GeoPoint[];
-  waypoints: { lat: number; lng: number; timestamp: number }[];
+  waypoints: W[];
   elapsedSeconds: number;
 }
 
-interface ProcessedRouteData {
+interface ProcessedRouteData<W extends RecordingWaypointBase = RecordingWaypointBase> {
   maskedPoints: GeoPoint[];
-  maskedWaypoints: { lat: number; lng: number; timestamp: number }[];
+  maskedWaypoints: W[];
   distanceKm: number;
   durationSeconds: number;
 }
@@ -43,7 +49,7 @@ function findCutIndex(points: GeoPoint[], thresholdKm: number): number {
  * If the route is too short to mask (< 1 km total), returns the data unchanged
  * so short trips aren't reduced to nothing.
  */
-export function processRouteData(raw: RawRecordingData): ProcessedRouteData {
+export function processRouteData<W extends RecordingWaypointBase>(raw: RawRecordingData<W>): ProcessedRouteData<W> {
   const { points, waypoints, elapsedSeconds } = raw;
 
   if (points.length < 2) {

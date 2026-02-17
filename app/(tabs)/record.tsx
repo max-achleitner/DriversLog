@@ -3,22 +3,28 @@ import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocationPermission } from '../../src/hooks/useLocationPermission';
 import { useRouteRecording } from '../../src/hooks/useRouteRecording';
+import { useStopDetection } from '../../src/hooks/useStopDetection';
+import { useCurveDetection } from '../../src/hooks/useCurveDetection';
 import { useGhostSelection } from '../../src/hooks/useGhostSelection';
 import { useActiveCar } from '../../src/hooks/useActiveCar';
 import { RecordingOverlay } from '../../src/features/recorder/RecordingOverlay';
 import { RecordingControls } from '../../src/features/recorder/RecordingControls';
 import { SaveRouteModal } from '../../src/features/recorder/SaveRouteModal';
+import { StopDetectedBanner } from '../../src/features/recorder/StopDetectedBanner';
+import { CurveDetectedToast } from '../../src/features/recorder/CurveDetectedToast';
+import { WaypointTypeSheet } from '../../src/features/recorder/WaypointTypeSheet';
 import { ActiveCarSelector } from '../../src/features/recorder/ActiveCarSelector';
 import { DeltaTimeBar } from '../../src/features/race/DeltaTimeBar';
 import { GhostPickerModal } from '../../src/features/race/GhostPickerModal';
 import { useRaceMode } from '../../src/contexts/RaceModeContext';
 import { DeltaCalculator, RoutePoint } from '../../src/utils/DeltaCalculator';
+import { GeoPoint, WaypointType } from '../../src/types/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 
 export default function RecordScreen() {
   const { status: permStatus, requestPermission } = useLocationPermission();
-  const recording = useRouteRecording();
   const { theme, isRaceMode } = useRaceMode();
   const ghost = useGhostSelection();
   const { cars, activeCar, setActiveCar } = useActiveCar();
@@ -28,9 +34,24 @@ export default function RecordScreen() {
   const [showGhostPicker, setShowGhostPicker] = useState(false);
   const [currentDelta, setCurrentDelta] = useState<number | null>(null);
   const [hasReference, setHasReference] = useState(false);
+  const [showTypeSheet, setShowTypeSheet] = useState(false);
+  const [pendingStopCoords, setPendingStopCoords] = useState<GeoPoint | null>(null);
+
+  // Bridge ref to avoid circular dependency between hooks
+  const detectionCbRef = useRef<((loc: Location.LocationObject) => void) | null>(null);
+  const recording = useRouteRecording({
+    onLocationUpdate: (loc) => detectionCbRef.current?.(loc),
+  });
 
   const isRecording = recording.status === 'recording';
   const isFinished = recording.status === 'finished';
+
+  const stopDetection = useStopDetection({ isActive: isRecording });
+  const curveDetection = useCurveDetection({ isActive: isRecording });
+  detectionCbRef.current = (loc) => {
+    stopDetection.onLocationUpdate(loc);
+    curveDetection.onLocationUpdate(loc);
+  };
 
   // Recalculate delta whenever position or distance changes during recording
   useEffect(() => {
@@ -121,8 +142,9 @@ export default function RecordScreen() {
   }, [handleGhostSkip, recording]);
 
   const handleSave = async (title: string, carId: string | null, description: string | null) => {
-    await recording.saveRoute(title, carId, description);
+    await recording.saveRoute(title, carId, description, curveDetection.completedCurves);
     recording.reset();
+    curveDetection.resetCurves();
     // Reset delta state
     setCurrentDelta(null);
     setHasReference(false);
@@ -131,10 +153,50 @@ export default function RecordScreen() {
 
   const handleDiscard = () => {
     recording.reset();
+    curveDetection.resetCurves();
     setCurrentDelta(null);
     setHasReference(false);
     deltaCalcRef.current = new DeltaCalculator();
   };
+
+  // Stop detection: user taps "Markieren" on banner
+  const handleMarkStop = useCallback(() => {
+    if (stopDetection.stopDetectedLocation) {
+      setPendingStopCoords(stopDetection.stopDetectedLocation);
+      setShowTypeSheet(true);
+    }
+  }, [stopDetection.stopDetectedLocation]);
+
+  // Stop detection: user selects type in sheet
+  const handleTypeSelect = useCallback(
+    (type: WaypointType, note: string | undefined) => {
+      if (pendingStopCoords) {
+        recording.addWaypoint(pendingStopCoords, type, note);
+      }
+      setPendingStopCoords(null);
+      setShowTypeSheet(false);
+      stopDetection.dismissStop();
+    },
+    [pendingStopCoords, recording, stopDetection],
+  );
+
+  const handleTypeSheetClose = useCallback(() => {
+    setPendingStopCoords(null);
+    setShowTypeSheet(false);
+    stopDetection.dismissStop();
+  }, [stopDetection]);
+
+  // Handle notification tap (when app was in background)
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data?.type === 'stop_detected' && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        setPendingStopCoords({ lat: data.lat, lng: data.lng });
+        setShowTypeSheet(true);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Berechtigung noch nicht geladen
   if (permStatus === null) {
@@ -224,6 +286,19 @@ export default function RecordScreen() {
             />
           )}
 
+          {/* Erkannte Kurven-Highlights */}
+          {curveDetection.completedCurves.map((curve, i) => (
+            <Polyline
+              key={`curve-${i}`}
+              coordinates={curve.curvePath.map((p) => ({
+                latitude: p.lat,
+                longitude: p.lng,
+              }))}
+              strokeColor="#00BCD4"
+              strokeWidth={6}
+            />
+          ))}
+
           {/* Waypoint-Marker */}
           {recording.waypoints.map((wp, i) => (
             <Marker
@@ -265,6 +340,26 @@ export default function RecordScreen() {
         loading={ghost.loading}
         onSelect={handleGhostSelectAndStart}
         onSkip={handleGhostSkipAndStart}
+      />
+
+      {/* Stop Detected Banner */}
+      <StopDetectedBanner
+        visible={isRecording && stopDetection.stopDetectedLocation !== null}
+        onMark={handleMarkStop}
+        onDismiss={stopDetection.dismissStop}
+      />
+
+      {/* Curve Detected Toast */}
+      <CurveDetectedToast
+        curve={curveDetection.latestCurve}
+        onDismiss={curveDetection.dismissLatest}
+      />
+
+      {/* Waypoint Type Sheet */}
+      <WaypointTypeSheet
+        visible={showTypeSheet}
+        onSelect={handleTypeSelect}
+        onClose={handleTypeSheetClose}
       />
 
       {/* Save Modal */}

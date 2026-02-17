@@ -9,6 +9,7 @@ import '../src/services/geofencing';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useBackgroundLocation } from '../src/hooks/useBackgroundLocation';
+import { SettingsProvider } from '../src/contexts/SettingsContext';
 import { RaceModeProvider, useRaceMode } from '../src/contexts/RaceModeContext';
 
 function RootStack() {
@@ -28,7 +29,13 @@ function RootStack() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="settings/index" options={{ title: 'Einstellungen' }} />
+        <Stack.Screen
+          name="settings/index"
+          options={{
+            title: 'Einstellungen',
+            headerBackTitle: 'Zurueck',
+          }}
+        />
       </Stack>
     </>
   );
@@ -36,8 +43,10 @@ function RootStack() {
 
 export default function RootLayout() {
   return (
-    <RaceModeProvider>
-      <RootStack />
-    </RaceModeProvider>
+    <SettingsProvider>
+      <RaceModeProvider>
+        <RootStack />
+      </RaceModeProvider>
+    </SettingsProvider>
   );
 }

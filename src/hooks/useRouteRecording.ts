@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import { GeoPoint, RouteInsert, WaypointInsert } from '../types/supabase';
+import { CurveHighlight, GeoPoint, RouteInsert, WaypointInsert, WaypointType } from '../types/supabase';
 import { haversineKm } from '../utils/geo';
 import { processRouteData } from '../utils/processRouteData';
 import { supabase } from '../lib/supabase';
@@ -12,6 +12,12 @@ interface RecordingWaypoint {
   lat: number;
   lng: number;
   timestamp: number;
+  type?: WaypointType;
+  note?: string;
+}
+
+interface UseRouteRecordingOptions {
+  onLocationUpdate?: (location: Location.LocationObject) => void;
 }
 
 interface RecordingState {
@@ -28,8 +34,8 @@ interface RecordingState {
 interface UseRouteRecordingReturn extends RecordingState {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
-  addWaypoint: () => void;
-  saveRoute: (title: string, carId: string | null, description: string | null) => Promise<void>;
+  addWaypoint: (coords?: GeoPoint, type?: WaypointType, note?: string) => void;
+  saveRoute: (title: string, carId: string | null, description: string | null, highlights?: CurveHighlight[]) => Promise<void>;
   reset: () => void;
 }
 
@@ -44,12 +50,16 @@ const INITIAL_STATE: RecordingState = {
   currentLocation: null,
 };
 
-export function useRouteRecording(): UseRouteRecordingReturn {
+export function useRouteRecording(
+  options?: UseRouteRecordingOptions,
+): UseRouteRecordingReturn {
   const [state, setState] = useState<RecordingState>(INITIAL_STATE);
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const distanceRef = useRef(0);
   const pointsRef = useRef<GeoPoint[]>([]);
+  const onLocationUpdateRef = useRef(options?.onLocationUpdate);
+  onLocationUpdateRef.current = options?.onLocationUpdate;
 
   const clearSubscriptions = useCallback(() => {
     if (subscriptionRef.current) {
@@ -92,6 +102,8 @@ export function useRouteRecording(): UseRouteRecordingReturn {
         timeInterval: 3000,
       },
       (location) => {
+        onLocationUpdateRef.current?.(location);
+
         const newPoint: GeoPoint = {
           lat: location.coords.latitude,
           lng: location.coords.longitude,
@@ -122,20 +134,26 @@ export function useRouteRecording(): UseRouteRecordingReturn {
     setState((prev) => ({ ...prev, status: 'finished' }));
   }, [clearSubscriptions]);
 
-  const addWaypoint = useCallback(() => {
-    setState((prev) => {
-      if (!prev.currentLocation) return prev;
-      const wp: RecordingWaypoint = {
-        lat: prev.currentLocation.lat,
-        lng: prev.currentLocation.lng,
-        timestamp: Date.now(),
-      };
-      return { ...prev, waypoints: [...prev.waypoints, wp] };
-    });
-  }, []);
+  const addWaypoint = useCallback(
+    (coords?: GeoPoint, type?: WaypointType, note?: string) => {
+      setState((prev) => {
+        const location = coords ?? prev.currentLocation;
+        if (!location) return prev;
+        const wp: RecordingWaypoint = {
+          lat: location.lat,
+          lng: location.lng,
+          timestamp: Date.now(),
+          type,
+          note,
+        };
+        return { ...prev, waypoints: [...prev.waypoints, wp] };
+      });
+    },
+    [],
+  );
 
   const saveRoute = useCallback(
-    async (title: string, carId: string | null, description: string | null) => {
+    async (title: string, carId: string | null, description: string | null, highlights?: CurveHighlight[]) => {
       const userId = getCurrentUserId();
 
       const processed = processRouteData({
@@ -152,6 +170,7 @@ export function useRouteRecording(): UseRouteRecordingReturn {
         distance_km: processed.distanceKm,
         duration_seconds: processed.durationSeconds,
         polyline_json: processed.maskedPoints,
+        highlights_json: highlights ?? null,
         is_public: false,
       };
 
@@ -171,6 +190,8 @@ export function useRouteRecording(): UseRouteRecordingReturn {
           lat: wp.lat,
           lng: wp.lng,
           sort_order: i,
+          type: wp.type ?? null,
+          note: wp.note ?? null,
         }));
 
         const { error: wpError } = await supabase.from('waypoints').insert(waypointInserts);
