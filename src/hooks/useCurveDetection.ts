@@ -33,6 +33,7 @@ const STABLE_HEADING_THRESHOLD = 5;
 const STABLE_DURATION_MS = 2000;
 const EXIT_SPEED_THRESHOLD = 20;
 const MIN_CURVE_ANGLE = 45;
+const MAX_CURVE_SAMPLES = 200;
 
 export function useCurveDetection({
   isActive,
@@ -84,6 +85,7 @@ export function useCurveDetection({
           if (Math.abs(delta) > ENTRY_HEADING_THRESHOLD && speedKmh > ENTRY_SPEED_THRESHOLD) {
             // Transition to TRACKING
             phaseRef.current = 'tracking';
+            headingBufferRef.current = [{ heading, speedKmh, timestamp: now, coord }];
             curveStartTimeRef.current = now;
             entrySpeedRef.current = speedKmh;
             curvePathRef.current = [coord];
@@ -97,22 +99,17 @@ export function useCurveDetection({
         }
       } else {
         // TRACKING phase
-        if (prevHeadingRef.current !== null) {
-          const stepDelta = Math.abs(normalizeHeadingDelta(prevHeadingRef.current, heading));
-          totalAngleRef.current += stepDelta;
-          setCurrentAngle(Math.round(totalAngleRef.current));
-        }
+        const stepDelta = prevHeadingRef.current !== null
+          ? Math.abs(normalizeHeadingDelta(prevHeadingRef.current, heading))
+          : 0;
+        totalAngleRef.current += stepDelta;
+        setCurrentAngle(Math.round(totalAngleRef.current));
+
         prevHeadingRef.current = heading;
         curvePathRef.current.push(coord);
         speedSamplesRef.current.push(speedKmh);
 
-        // Check stability
-        const stepDelta = buffer.length >= 2
-          ? Math.abs(normalizeHeadingDelta(
-              buffer[buffer.length - 2].heading,
-              buffer[buffer.length - 1].heading,
-            ))
-          : 0;
+        // Check stability (use same stepDelta)
 
         if (stepDelta < STABLE_HEADING_THRESHOLD) {
           if (stableStartTimeRef.current === null) {
@@ -126,7 +123,7 @@ export function useCurveDetection({
           stableStartTimeRef.current !== null &&
           now - stableStartTimeRef.current > STABLE_DURATION_MS;
 
-        if (stableExceeded || speedKmh < EXIT_SPEED_THRESHOLD) {
+        if (stableExceeded || speedKmh < EXIT_SPEED_THRESHOLD || curvePathRef.current.length > MAX_CURVE_SAMPLES) {
           // End curve — validate
           const totalAngle = totalAngleRef.current;
           const path = [...curvePathRef.current];
@@ -151,6 +148,7 @@ export function useCurveDetection({
 
           // Reset to idle
           phaseRef.current = 'idle';
+          headingBufferRef.current = [];
           totalAngleRef.current = 0;
           curvePathRef.current = [];
           speedSamplesRef.current = [];
