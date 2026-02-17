@@ -33,6 +33,7 @@ export interface Route {
   distance_km: number | null;
   duration_seconds: number | null;
   polyline_json: GeoPoint[] | null;
+  highlights_json: CurveHighlight[] | null;
   is_public: boolean;
   created_at: string;
 }
@@ -73,6 +74,18 @@ export interface GeoPoint {
   lng: number;
 }
 
+/** Erkannte Kurve waehrend einer Tour */
+export interface CurveHighlight {
+  startCoord: GeoPoint;
+  endCoord: GeoPoint;
+  curvePath: GeoPoint[];
+  curveAngle: number;
+  avgSpeedKmh: number;
+  entrySpeedKmh: number;
+  exitSpeedKmh: number;
+  timestamp: number;
+}
+
 /** Insert-Typen: nur die Pflichtfelder + optionale */
 export interface ProfileInsert {
   id: string;
@@ -98,6 +111,7 @@ export interface RouteInsert {
   distance_km?: number | null;
   duration_seconds?: number | null;
   polyline_json?: GeoPoint[] | null;
+  highlights_json?: CurveHighlight[] | null;
   is_public?: boolean;
 }
 

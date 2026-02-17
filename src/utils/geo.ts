@@ -23,6 +23,11 @@ export function formatDuration(seconds: number): string {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+/** Kuerzester Winkeldelta zwischen zwei Headings (0-360), Ergebnis in [-180, 180] */
+export function normalizeHeadingDelta(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180;
+}
+
 export function formatDistanceKm(km: number): string {
   if (km < 1) {
     return `${Math.round(km * 1000)} m`;
