@@ -55,11 +55,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback(
     async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+      let updated: AppSettings;
       setSettings((prev) => {
-        const next = { ...prev, [key]: value };
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        return next;
+        updated = { ...prev, [key]: value };
+        return updated;
       });
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated!));
     },
     [],
   );
