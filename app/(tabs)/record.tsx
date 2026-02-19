@@ -44,6 +44,8 @@ export default function RecordScreen() {
   });
 
   const isRecording = recording.status === 'recording';
+  const isPaused = recording.status === 'paused';
+  const isActiveSession = isRecording || isPaused;
   const isFinished = recording.status === 'finished';
 
   const stopDetection = useStopDetection({ isActive: isRecording });
@@ -251,7 +253,7 @@ export default function RecordScreen() {
       )}
 
       {/* Karte */}
-      <View className={isRecording ? 'flex-[3]' : 'flex-1'}>
+      <View className={isActiveSession ? 'flex-[3]' : 'flex-1'}>
         <MapView
           ref={mapRef}
           provider={PROVIDER_DEFAULT}
@@ -312,7 +314,7 @@ export default function RecordScreen() {
 
       {/* Unterer Bereich */}
       <View className="pb-6 pt-3">
-        {isRecording && (
+        {isActiveSession && (
           <RecordingOverlay
             elapsedSeconds={recording.elapsedSeconds}
             distanceKm={recording.distanceKm}
@@ -321,7 +323,7 @@ export default function RecordScreen() {
         )}
 
         {/* Auto-Auswahl im Idle-Zustand */}
-        {!isRecording && !isFinished && (
+        {!isActiveSession && !isFinished && (
           <ActiveCarSelector cars={cars} activeCar={activeCar} onSelect={setActiveCar} />
         )}
 
@@ -329,6 +331,8 @@ export default function RecordScreen() {
           status={recording.status}
           onStart={handleStart}
           onStop={recording.stopRecording}
+          onPause={recording.pauseRecording}
+          onResume={recording.resumeRecording}
           onAddWaypoint={recording.addWaypoint}
         />
       </View>
@@ -344,7 +348,7 @@ export default function RecordScreen() {
 
       {/* Stop Detected Banner */}
       <StopDetectedBanner
-        visible={isRecording && stopDetection.stopDetectedLocation !== null}
+        visible={isActiveSession && stopDetection.stopDetectedLocation !== null}
         onMark={handleMarkStop}
         onDismiss={stopDetection.dismissStop}
       />

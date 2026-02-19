@@ -3,9 +3,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRaceMode } from '../../contexts/RaceModeContext';
 
 interface RecordingControlsProps {
-  status: 'idle' | 'recording' | 'finished';
+  status: 'idle' | 'recording' | 'paused' | 'finished';
   onStart: () => void;
   onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
   onAddWaypoint: () => void;
 }
 
@@ -13,6 +15,8 @@ export function RecordingControls({
   status,
   onStart,
   onStop,
+  onPause,
+  onResume,
   onAddWaypoint,
 }: RecordingControlsProps) {
   const { isRaceMode, theme } = useRaceMode();
@@ -49,6 +53,34 @@ export function RecordingControls({
           <Ionicons name="bookmark-outline" size={20} color={theme.warm} />
           <Text style={{ color: theme.warm }} className="ml-2 font-bold">
             Moment
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onPause}
+          style={{ borderColor: theme.accent }}
+          className="flex-1 flex-row items-center justify-center rounded-2xl border-2 py-4 active:opacity-80"
+        >
+          <Ionicons name="pause-circle-outline" size={20} color={theme.accent} />
+          <Text style={{ color: theme.accent }} className="ml-2 font-bold">
+            Pause
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (status === 'paused') {
+    return (
+      <View className="mx-4 mt-4 flex-row gap-3">
+        <Pressable
+          onPress={onResume}
+          style={{ backgroundColor: theme.accent }}
+          className="flex-1 flex-row items-center justify-center rounded-2xl py-4 active:opacity-80"
+        >
+          <Ionicons name="play-circle-outline" size={20} color={theme.textLight} />
+          <Text style={{ color: theme.textLight }} className="ml-2 font-bold">
+            Weiter
           </Text>
         </Pressable>
 

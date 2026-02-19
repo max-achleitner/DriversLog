@@ -6,7 +6,7 @@ import { processRouteData } from '../utils/processRouteData';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/auth';
 
-type RecordingStatus = 'idle' | 'recording' | 'finished';
+type RecordingStatus = 'idle' | 'recording' | 'paused' | 'finished';
 
 interface RecordingWaypoint {
   lat: number;
@@ -34,6 +34,8 @@ interface RecordingState {
 interface UseRouteRecordingReturn extends RecordingState {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
+  pauseRecording: () => void;
+  resumeRecording: () => Promise<void>;
   addWaypoint: (coords?: GeoPoint, type?: WaypointType, note?: string) => void;
   saveRoute: (title: string, carId: string | null, description: string | null, highlights?: CurveHighlight[]) => Promise<void>;
   reset: () => void;
@@ -58,6 +60,8 @@ export function useRouteRecording(
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const distanceRef = useRef(0);
   const pointsRef = useRef<GeoPoint[]>([]);
+  // Accumulated elapsed seconds before the current recording segment (used for pause/resume)
+  const pausedElapsedRef = useRef(0);
   const onLocationUpdateRef = useRef(options?.onLocationUpdate);
   onLocationUpdateRef.current = options?.onLocationUpdate;
 
@@ -76,25 +80,7 @@ export function useRouteRecording(
     return clearSubscriptions;
   }, [clearSubscriptions]);
 
-  const startRecording = useCallback(async () => {
-    distanceRef.current = 0;
-    pointsRef.current = [];
-
-    const startTime = Date.now();
-
-    setState({
-      ...INITIAL_STATE,
-      status: 'recording',
-      startTime,
-    });
-
-    timerRef.current = setInterval(() => {
-      setState((prev) => {
-        if (prev.status !== 'recording' || !prev.startTime) return prev;
-        return { ...prev, elapsedSeconds: Math.floor((Date.now() - prev.startTime) / 1000) };
-      });
-    }, 1000);
-
+  const startLocationWatch = useCallback(async () => {
     subscriptionRef.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
@@ -128,6 +114,61 @@ export function useRouteRecording(
       },
     );
   }, []);
+
+  const startTimer = useCallback((startTime: number) => {
+    timerRef.current = setInterval(() => {
+      setState((prev) => {
+        if (prev.status !== 'recording' || !prev.startTime) return prev;
+        return {
+          ...prev,
+          elapsedSeconds: pausedElapsedRef.current + Math.floor((Date.now() - startTime) / 1000),
+        };
+      });
+    }, 1000);
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    distanceRef.current = 0;
+    pointsRef.current = [];
+    pausedElapsedRef.current = 0;
+
+    const startTime = Date.now();
+
+    setState({
+      ...INITIAL_STATE,
+      status: 'recording',
+      startTime,
+    });
+
+    startTimer(startTime);
+    await startLocationWatch();
+  }, [startTimer, startLocationWatch]);
+
+  const pauseRecording = useCallback(() => {
+    setState((prev) => {
+      if (prev.status !== 'recording') return prev;
+      pausedElapsedRef.current = prev.elapsedSeconds;
+      return { ...prev, status: 'paused' };
+    });
+    if (subscriptionRef.current) {
+      subscriptionRef.current.remove();
+      subscriptionRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const resumeRecording = useCallback(async () => {
+    const resumeTime = Date.now();
+    setState((prev) => {
+      if (prev.status !== 'paused') return prev;
+      return { ...prev, status: 'recording', startTime: resumeTime };
+    });
+    startTimer(resumeTime);
+    await startLocationWatch();
+  }, [startTimer, startLocationWatch]);
 
   const stopRecording = useCallback(() => {
     clearSubscriptions();
@@ -208,6 +249,7 @@ export function useRouteRecording(
     clearSubscriptions();
     distanceRef.current = 0;
     pointsRef.current = [];
+    pausedElapsedRef.current = 0;
     setState(INITIAL_STATE);
   }, [clearSubscriptions]);
 
@@ -215,6 +257,8 @@ export function useRouteRecording(
     ...state,
     startRecording,
     stopRecording,
+    pauseRecording,
+    resumeRecording,
     addWaypoint,
     saveRoute,
     reset,
