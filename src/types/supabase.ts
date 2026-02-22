@@ -60,6 +60,7 @@ export interface Waypoint {
   media_url: string | null;
   description: string | null;
   tags: string[] | null;
+  image_urls: string[] | null;
   sort_order: number;
   created_at: string;
 }
@@ -95,6 +96,7 @@ export interface ProfileInsert {
 }
 
 export interface CarInsert {
+  id?: string;   // optional pre-generated UUID for offline-first creates
   user_id: string;
   make: string;
   model: string;
@@ -104,6 +106,7 @@ export interface CarInsert {
 }
 
 export interface RouteInsert {
+  id?: string;   // optional pre-generated UUID for offline-first saves
   user_id: string;
   car_id?: string | null;
   title: string;
@@ -116,6 +119,7 @@ export interface RouteInsert {
 }
 
 export interface WaypointInsert {
+  id?: string;
   route_id: string;
   lat: number;
   lng: number;
@@ -126,6 +130,7 @@ export interface WaypointInsert {
   media_url?: string | null;
   description?: string | null;
   tags?: string[] | null;
+  image_urls?: string[] | null;
   sort_order?: number;
 }
 

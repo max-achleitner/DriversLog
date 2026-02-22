@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCars } from '../../hooks/useCars';
 import { PickerModal } from '../../components/PickerModal';
 import { formatDuration, formatDistanceKm } from '../../utils/geo';
+import { useToast } from '../../contexts/ToastContext';
 
 interface SaveRouteModalProps {
   visible: boolean;
@@ -40,6 +40,7 @@ export function SaveRouteModal({
   const [initialized, setInitialized] = useState(false);
 
   const { cars } = useCars();
+  const { showToast } = useToast();
 
   // Vorauswahl uebernehmen wenn Modal sichtbar wird
   if (visible && !initialized) {
@@ -70,8 +71,8 @@ export function SaveRouteModal({
       setDescription('');
       setSelectedCarId(null);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Fehler beim Speichern';
-      Alert.alert('Fehler', msg);
+      const msg = e instanceof Error ? e.message : 'Tour konnte nicht gespeichert werden.';
+      showToast({ type: 'error', message: msg });
     } finally {
       setSaving(false);
     }

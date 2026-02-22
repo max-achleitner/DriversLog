@@ -12,6 +12,8 @@ import MapView, { Circle, MapPressEvent, Marker, PROVIDER_DEFAULT } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useSettings } from '../../src/hooks/useSettings';
+import { useSync } from '../../src/contexts/SyncContext';
+import { retryFailedItems } from '../../src/lib/offlineStore';
 
 const ACCENT_GREEN = '#2E5A3C';
 const MUTED = '#9CA3AF';
@@ -22,6 +24,7 @@ const RACE_RED = '#E11D48';
 
 export default function SettingsScreen() {
   const { settings, loading, update } = useSettings();
+  const { pendingCount, failedCount, isSyncing, syncNow, refreshPendingCount } = useSync();
   const mapRef = useRef<MapView>(null);
   const [locating, setLocating] = useState(false);
 
@@ -262,6 +265,78 @@ export default function SettingsScreen() {
               Tippe auf die Karte oder nutze deinen aktuellen Standort, um den Home Point zu setzen.
             </Text>
           </View>
+        )}
+      </View>
+
+      {/* ── Sektion: Synchronisierung ── */}
+      <Text className="mx-5 mb-2 mt-8 text-xs font-semibold uppercase tracking-widest text-text-secondary">
+        Synchronisierung
+      </Text>
+
+      <View className="mx-4 overflow-hidden rounded-2xl bg-background-card">
+        {/* Status row */}
+        <View className="flex-row items-center px-4 py-4">
+          <View
+            className="h-9 w-9 items-center justify-center rounded-lg"
+            style={{ backgroundColor: failedCount > 0 ? '#FEF2F2' : pendingCount > 0 ? '#FFF7ED' : '#F0FDF4' }}
+          >
+            <Ionicons
+              name={failedCount > 0 ? 'alert-circle-outline' : pendingCount > 0 ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
+              size={20}
+              color={failedCount > 0 ? '#DC2626' : pendingCount > 0 ? '#B45309' : '#16A34A'}
+            />
+          </View>
+          <View className="ml-3 flex-1">
+            <Text className="text-sm font-semibold text-text">
+              {pendingCount === 0
+                ? 'Alles synchronisiert'
+                : `${pendingCount} ${pendingCount === 1 ? 'Eintrag' : 'Einträge'} ausstehend`}
+            </Text>
+            {failedCount > 0 && (
+              <Text className="mt-0.5 text-xs" style={{ color: '#DC2626' }}>
+                {failedCount} {failedCount === 1 ? 'Eintrag' : 'Einträge'} fehlgeschlagen
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <Divider />
+
+        {/* Manual sync button */}
+        <Pressable
+          onPress={syncNow}
+          disabled={isSyncing || pendingCount === 0}
+          className="flex-row items-center justify-center py-3.5 active:opacity-70"
+          style={{ opacity: isSyncing || pendingCount === 0 ? 0.45 : 1 }}
+        >
+          {isSyncing ? (
+            <ActivityIndicator size="small" color={PRIMARY} />
+          ) : (
+            <Ionicons name="sync-outline" size={18} color={PRIMARY} />
+          )}
+          <Text className="ml-2 text-sm font-semibold text-primary">
+            {isSyncing ? 'Synchronisiere...' : 'Jetzt synchronisieren'}
+          </Text>
+        </Pressable>
+
+        {/* Retry failed items */}
+        {failedCount > 0 && (
+          <>
+            <Divider />
+            <Pressable
+              onPress={async () => {
+                await retryFailedItems();
+                await refreshPendingCount();
+                await syncNow();
+              }}
+              className="flex-row items-center justify-center py-3.5 active:opacity-70"
+            >
+              <Ionicons name="refresh-outline" size={18} color="#DC2626" />
+              <Text className="ml-2 text-sm font-semibold" style={{ color: '#DC2626' }}>
+                Fehlgeschlagene erneut versuchen
+              </Text>
+            </Pressable>
+          </>
         )}
       </View>
     </ScrollView>

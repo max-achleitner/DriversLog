@@ -1,19 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
-import { CurveHighlight, GeoPoint, RouteInsert, WaypointInsert, WaypointType } from '../types/supabase';
+import {
+  CurveHighlight,
+  GeoPoint,
+  RouteInsert,
+  WaypointInsert,
+  WaypointType,
+} from '../types/supabase';
 import { haversineKm } from '../utils/geo';
 import { processRouteData } from '../utils/processRouteData';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/auth';
+import { uploadWaypointImage } from '../lib/media';
+import { isOnline } from '../lib/network';
+import {
+  generateId,
+  addToQueue,
+  addLocalRoute,
+  removeLocalRoute,
+  saveDraftRecording,
+  clearDraftRecording,
+  SaveRoutePayload,
+  OfflineWaypoint,
+} from '../lib/offlineStore';
 
 type RecordingStatus = 'idle' | 'recording' | 'finished';
 
 interface RecordingWaypoint {
+  id: string;             // pre-generated UUID for DB + storage path
   lat: number;
   lng: number;
   timestamp: number;
   type?: WaypointType;
   note?: string;
+  localImageUri?: string;
 }
 
 interface UseRouteRecordingOptions {
@@ -31,11 +51,23 @@ interface RecordingState {
   currentLocation: GeoPoint | null;
 }
 
+export interface SaveRouteResult {
+  /** True if at least one image failed to upload (online saves only). */
+  imageUploadFailed: boolean;
+  /** True if the route was added to the offline queue instead of synced directly. */
+  queued: boolean;
+}
+
 interface UseRouteRecordingReturn extends RecordingState {
   startRecording: () => Promise<void>;
   stopRecording: () => void;
-  addWaypoint: (coords?: GeoPoint, type?: WaypointType, note?: string) => void;
-  saveRoute: (title: string, carId: string | null, description: string | null, highlights?: CurveHighlight[]) => Promise<void>;
+  addWaypoint: (coords?: GeoPoint, type?: WaypointType, note?: string, localImageUri?: string) => void;
+  saveRoute: (
+    title: string,
+    carId: string | null,
+    description: string | null,
+    highlights?: CurveHighlight[],
+  ) => Promise<SaveRouteResult>;
   reset: () => void;
 }
 
@@ -49,6 +81,9 @@ const INITIAL_STATE: RecordingState = {
   currentAltitude: null,
   currentLocation: null,
 };
+
+// Draft is saved every DRAFT_INTERVAL_SECONDS during recording
+const DRAFT_INTERVAL_SECONDS = 30;
 
 export function useRouteRecording(
   options?: UseRouteRecordingOptions,
@@ -76,6 +111,26 @@ export function useRouteRecording(
     return clearSubscriptions;
   }, [clearSubscriptions]);
 
+  // ── Draft save (app kill protection) ──────────────────────────────────────
+  // Every DRAFT_INTERVAL_SECONDS, persist current recording state.
+
+  useEffect(() => {
+    if (state.status !== 'recording') return;
+    if (state.elapsedSeconds === 0) return;
+    if (state.elapsedSeconds % DRAFT_INTERVAL_SECONDS !== 0) return;
+
+    void saveDraftRecording({
+      points: pointsRef.current,
+      waypoints: state.waypoints,
+      startTime: state.startTime ?? Date.now(),
+      elapsedSeconds: state.elapsedSeconds,
+      distanceKm: distanceRef.current,
+      savedAt: new Date().toISOString(),
+    });
+  }, [state.elapsedSeconds, state.status, state.waypoints, state.startTime]);
+
+  // ── Recording controls ─────────────────────────────────────────────────────
+
   const startRecording = useCallback(async () => {
     distanceRef.current = 0;
     pointsRef.current = [];
@@ -91,7 +146,10 @@ export function useRouteRecording(
     timerRef.current = setInterval(() => {
       setState((prev) => {
         if (prev.status !== 'recording' || !prev.startTime) return prev;
-        return { ...prev, elapsedSeconds: Math.floor((Date.now() - prev.startTime) / 1000) };
+        return {
+          ...prev,
+          elapsedSeconds: Math.floor((Date.now() - prev.startTime) / 1000),
+        };
       });
     }, 1000);
 
@@ -135,16 +193,24 @@ export function useRouteRecording(
   }, [clearSubscriptions]);
 
   const addWaypoint = useCallback(
-    (coords?: GeoPoint, type?: WaypointType, note?: string) => {
+    (
+      coords?: GeoPoint,
+      type?: WaypointType,
+      note?: string,
+      localImageUri?: string,
+    ) => {
+      const id = generateId();
       setState((prev) => {
         const location = coords ?? prev.currentLocation;
         if (!location) return prev;
         const wp: RecordingWaypoint = {
+          id,
           lat: location.lat,
           lng: location.lng,
           timestamp: Date.now(),
           type,
           note,
+          localImageUri,
         };
         return { ...prev, waypoints: [...prev.waypoints, wp] };
       });
@@ -152,9 +218,17 @@ export function useRouteRecording(
     [],
   );
 
+  // ── Offline-first save ─────────────────────────────────────────────────────
+
   const saveRoute = useCallback(
-    async (title: string, carId: string | null, description: string | null, highlights?: CurveHighlight[]) => {
+    async (
+      title: string,
+      carId: string | null,
+      description: string | null,
+      highlights?: CurveHighlight[],
+    ): Promise<SaveRouteResult> => {
       const userId = getCurrentUserId();
+      const routeId = generateId(); // pre-generate — used as DB primary key
 
       const processed = processRouteData({
         points: state.points,
@@ -162,7 +236,9 @@ export function useRouteRecording(
         elapsedSeconds: state.elapsedSeconds,
       });
 
-      const routeInsert: RouteInsert = {
+      // Build typed route insert with the pre-generated ID
+      const routeInsert: RouteInsert & { id: string } = {
+        id: routeId,
         user_id: userId,
         car_id: carId,
         title,
@@ -174,32 +250,106 @@ export function useRouteRecording(
         is_public: false,
       };
 
-      const { data: route, error: routeError } = await supabase
-        .from('routes')
-        .insert(routeInsert)
-        .select('id')
-        .single();
-
-      if (routeError || !route) {
-        throw new Error(routeError?.message ?? 'Route konnte nicht gespeichert werden.');
-      }
-
-      if (processed.maskedWaypoints.length > 0) {
-        const waypointInserts: WaypointInsert[] = processed.maskedWaypoints.map((wp, i) => ({
-          route_id: route.id,
+      // Map processed waypoints to offline format (preserving id + localImageUri)
+      const offlineWaypoints: OfflineWaypoint[] = processed.maskedWaypoints.map((wp) => ({
+        id: wp.id,
+        data: {
+          route_id: routeId,
           lat: wp.lat,
           lng: wp.lng,
-          sort_order: i,
           type: wp.type ?? null,
           note: wp.note ?? null,
-        }));
+        } satisfies WaypointInsert,
+        localImageUri: wp.localImageUri,
+      }));
 
-        const { error: wpError } = await supabase.from('waypoints').insert(waypointInserts);
+      const savePayload: SaveRoutePayload = {
+        routeId,
+        userId,
+        route: routeInsert,
+        waypoints: offlineWaypoints,
+      };
 
-        if (wpError) {
-          throw new Error(wpError.message);
+      // Always clear the draft — we've captured the data in savePayload
+      await clearDraftRecording();
+
+      // ── Try direct Supabase sync ─────────────────────────────────────────
+      const online = await isOnline();
+
+      if (online) {
+        try {
+          // 1. Route
+          const { error: routeError } = await supabase
+            .from('routes')
+            .insert(routeInsert);
+
+          if (routeError) throw new Error(routeError.message);
+
+          // 2. Waypoints
+          let imageUploadFailed = false;
+
+          if (offlineWaypoints.length > 0) {
+            const waypointRows = offlineWaypoints.map((wp, i) => ({
+              id: wp.id,
+              route_id: routeId,
+              lat: wp.data.lat,
+              lng: wp.data.lng,
+              sort_order: i,
+              type: wp.data.type ?? null,
+              note: wp.data.note ?? null,
+            }));
+
+            const { error: wpError } = await supabase
+              .from('waypoints')
+              .insert(waypointRows);
+
+            if (wpError) throw new Error(wpError.message);
+
+            // 3. Images
+            for (const wp of offlineWaypoints) {
+              if (!wp.localImageUri) continue;
+              try {
+                const storagePath = await uploadWaypointImage(
+                  userId,
+                  wp.id,
+                  wp.localImageUri,
+                );
+                if (storagePath) {
+                  await supabase
+                    .from('waypoints')
+                    .update({ image_urls: [storagePath] })
+                    .eq('id', wp.id);
+                } else {
+                  imageUploadFailed = true;
+                }
+              } catch {
+                imageUploadFailed = true;
+              }
+            }
+          }
+
+          // Direct sync succeeded — no need to store locally
+          return { imageUploadFailed, queued: false };
+        } catch {
+          // Online sync failed — fall through to queue
         }
       }
+
+      // ── Queue for later sync ─────────────────────────────────────────────
+      await addLocalRoute({
+        id: routeId,
+        title,
+        description: description ?? null,
+        distanceKm: processed.distanceKm,
+        durationSeconds: processed.durationSeconds,
+        polylineJson: processed.maskedPoints,
+        createdAt: new Date().toISOString(),
+        carId,
+      });
+
+      await addToQueue({ type: 'save_route', payload: savePayload });
+
+      return { imageUploadFailed: false, queued: true };
     },
     [state.distanceKm, state.elapsedSeconds, state.points, state.waypoints],
   );

@@ -17,6 +17,8 @@ import { ActiveCarSelector } from '../../src/features/recorder/ActiveCarSelector
 import { DeltaTimeBar } from '../../src/features/race/DeltaTimeBar';
 import { GhostPickerModal } from '../../src/features/race/GhostPickerModal';
 import { useRaceMode } from '../../src/contexts/RaceModeContext';
+import { useToast } from '../../src/contexts/ToastContext';
+import { ensureLocationPermission } from '../../src/lib/permissions';
 import { DeltaCalculator, RoutePoint } from '../../src/utils/DeltaCalculator';
 import { GeoPoint, WaypointType } from '../../src/types/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +28,7 @@ import * as Notifications from 'expo-notifications';
 export default function RecordScreen() {
   const { status: permStatus, requestPermission } = useLocationPermission();
   const { theme, isRaceMode } = useRaceMode();
+  const { showToast } = useToast();
   const ghost = useGhostSelection();
   const { cars, activeCar, setActiveCar } = useActiveCar();
   const mapRef = useRef<MapView>(null);
@@ -37,10 +40,22 @@ export default function RecordScreen() {
   const [showTypeSheet, setShowTypeSheet] = useState(false);
   const [pendingStopCoords, setPendingStopCoords] = useState<GeoPoint | null>(null);
 
+  // ── GPS loss detection ────────────────────────────────────────────────────
+  const lastGpsUpdateRef = useRef<number>(0);
+  const gpsLostRef = useRef(false);
+
   // Bridge ref to avoid circular dependency between hooks
   const detectionCbRef = useRef<((loc: Location.LocationObject) => void) | null>(null);
   const recording = useRouteRecording({
-    onLocationUpdate: (loc) => detectionCbRef.current?.(loc),
+    onLocationUpdate: (loc) => {
+      // Track last successful GPS update for loss detection
+      lastGpsUpdateRef.current = Date.now();
+      if (gpsLostRef.current) {
+        gpsLostRef.current = false;
+        showToast({ type: 'info', message: 'GPS-Signal wiederhergestellt.' });
+      }
+      detectionCbRef.current?.(loc);
+    },
   });
 
   const isRecording = recording.status === 'recording';
@@ -63,6 +78,29 @@ export default function RecordScreen() {
     );
     setCurrentDelta(result?.deltaSeconds ?? null);
   }, [isRecording, isRaceMode, hasReference, recording.distanceKm, recording.elapsedSeconds]);
+
+  // GPS signal loss detection: poll every 3 s while recording
+  useEffect(() => {
+    if (!isRecording) {
+      gpsLostRef.current = false;
+      lastGpsUpdateRef.current = 0;
+      return;
+    }
+
+    // Initialise timestamp so we don't immediately flag loss on recording start
+    lastGpsUpdateRef.current = Date.now();
+
+    const interval = setInterval(() => {
+      if (lastGpsUpdateRef.current === 0) return;
+      const elapsed = Date.now() - lastGpsUpdateRef.current;
+      if (elapsed > 10_000 && !gpsLostRef.current) {
+        gpsLostRef.current = true;
+        showToast({ type: 'warning', message: 'GPS-Signal verloren. Aufzeichnung läuft weiter.' });
+      }
+    }, 3_000);
+
+    return () => clearInterval(interval);
+  }, [isRecording, showToast]);
 
   // Load nearby ghost routes when ghost picker opens
   const handleOpenGhostPicker = useCallback(async () => {
@@ -118,8 +156,11 @@ export default function RecordScreen() {
     setShowGhostPicker(false);
   }, [ghost]);
 
-  // Wrap startRecording: in race mode, show ghost picker first
+  // Wrap startRecording: ensure permission, then in race mode show ghost picker first
   const handleStart = useCallback(async () => {
+    const permResult = await ensureLocationPermission();
+    if (permResult !== 'granted') return;
+
     if (isRaceMode) {
       await handleOpenGhostPicker();
     } else {
@@ -142,13 +183,20 @@ export default function RecordScreen() {
   }, [handleGhostSkip, recording]);
 
   const handleSave = async (title: string, carId: string | null, description: string | null) => {
-    await recording.saveRoute(title, carId, description, curveDetection.completedCurves);
+    const result = await recording.saveRoute(title, carId, description, curveDetection.completedCurves);
     recording.reset();
     curveDetection.resetCurves();
     // Reset delta state
     setCurrentDelta(null);
     setHasReference(false);
     deltaCalcRef.current = new DeltaCalculator();
+    if (result.queued) {
+      showToast({ type: 'info', message: 'Tour lokal gespeichert. Wird synchronisiert, sobald du wieder online bist.' });
+    } else if (result.imageUploadFailed) {
+      showToast({ type: 'warning', message: 'Wegpunkt gespeichert, aber Bild konnte nicht hochgeladen werden.' });
+    } else {
+      showToast({ type: 'success', message: 'Tour erfolgreich gespeichert!' });
+    }
   };
 
   const handleDiscard = () => {
@@ -169,9 +217,9 @@ export default function RecordScreen() {
 
   // Stop detection: user selects type in sheet
   const handleTypeSelect = useCallback(
-    (type: WaypointType, note: string | undefined) => {
+    (type: WaypointType, note: string | undefined, localImageUri: string | undefined) => {
       if (pendingStopCoords) {
-        recording.addWaypoint(pendingStopCoords, type, note);
+        recording.addWaypoint(pendingStopCoords, type, note, localImageUri);
       }
       setPendingStopCoords(null);
       setShowTypeSheet(false);
