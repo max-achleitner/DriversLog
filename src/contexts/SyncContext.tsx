@@ -77,6 +77,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     setFailedCount(queue.filter((op) => op.status === 'failed').length);
   }, []);
 
+  // Stable ref so syncNow can call refreshPendingCount without it being a dep
+  const refreshCountRef = useRef(refreshPendingCount);
+  refreshCountRef.current = refreshPendingCount;
+
   // ── Core sync function ──────────────────────────────────────────────────────
 
   const syncNow = useCallback(async () => {
@@ -96,7 +100,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await processQueue();
       setLastSyncResult(result);
-      await refreshPendingCount();
+      await refreshCountRef.current();
 
       if (result.synced > 0 && result.failed === 0) {
         const n = result.synced;
@@ -119,7 +123,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [showToast, refreshPendingCount]);
+  }, [showToast]);
 
   // Stable ref so connectivity effect always calls the latest syncNow
   const syncNowRef = useRef(syncNow);

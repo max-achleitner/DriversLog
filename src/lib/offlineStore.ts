@@ -21,6 +21,10 @@ const QUEUE_KEY = '@driverslog/offline_queue';
 const LOCAL_ROUTES_KEY = '@driverslog/local_routes';
 const DRAFT_RECORDING_KEY = '@driverslog/draft_recording';
 
+// ── Write locks ───────────────────────────────────────────────────────────────
+
+let _localRoutesWriteLock = Promise.resolve();
+
 // ── UUID generator (no external dep) ─────────────────────────────────────────
 
 export function generateId(): string {
@@ -107,16 +111,30 @@ export async function addToQueue(op: OperationInput): Promise<string> {
 
   // Duplicate prevention for route saves
   if (op.type === 'save_route') {
-    const routeId = op.payload.routeId;
-    const exists = queue.some(
-      (item) => item.type === 'save_route' && item.payload.routeId === routeId,
+    const routeId = (op.payload as SaveRoutePayload).routeId;
+    const existing = queue.find(
+      (item) => item.type === 'save_route' && (item.payload as SaveRoutePayload).routeId === routeId,
     );
-    if (exists) {
-      const existing = queue.find(
-        (item) => item.type === 'save_route' && item.payload.routeId === routeId,
-      );
-      return existing!.id;
+    if (existing) {
+      return existing.id;
     }
+  }
+
+  // Duplicate prevention for car operations
+  if (op.type === 'car_create') {
+    const carId = (op.payload as CarCreatePayload).car.id;
+    const alreadyQueued = queue.some(
+      (item) => item.type === 'car_create' && (item.payload as CarCreatePayload).car.id === carId,
+    );
+    if (alreadyQueued) return '';
+  }
+
+  if (op.type === 'car_delete') {
+    const carId = (op.payload as CarDeletePayload).carId;
+    const alreadyQueued = queue.some(
+      (item) => item.type === 'car_delete' && (item.payload as CarDeletePayload).carId === carId,
+    );
+    if (alreadyQueued) return '';
   }
 
   const id = generateId();
@@ -190,10 +208,13 @@ export interface LocalRoute {
 }
 
 export async function addLocalRoute(route: LocalRoute): Promise<void> {
-  const routes = await getLocalRoutes();
-  if (routes.some((r) => r.id === route.id)) return; // already stored
-  routes.push(route);
-  await AsyncStorage.setItem(LOCAL_ROUTES_KEY, JSON.stringify(routes));
+  _localRoutesWriteLock = _localRoutesWriteLock.then(async () => {
+    const routes = await getLocalRoutes();
+    if (routes.some((r) => r.id === route.id)) return;
+    routes.push(route);
+    await AsyncStorage.setItem(LOCAL_ROUTES_KEY, JSON.stringify(routes));
+  });
+  await _localRoutesWriteLock;
 }
 
 export async function getLocalRoutes(): Promise<LocalRoute[]> {

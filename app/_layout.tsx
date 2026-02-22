@@ -25,7 +25,6 @@ import {
   addLocalRoute,
   generateId,
 } from '../src/lib/offlineStore';
-import { getCurrentUserId } from '../src/lib/auth';
 
 /**
  * Innerstes Layout: hat Zugriff auf Auth, RaceMode, Sync und Router.
@@ -81,58 +80,65 @@ function InnerLayout() {
           {
             text: 'Tour speichern',
             onPress: async () => {
-              const userId = getCurrentUserId();
-              const routeId = generateId();
-              const title = `Unterbrochene Tour (${savedDate})`;
+              try {
+                const userId = session!.user.id;
+                const routeId = generateId();
+                const title = `Unterbrochene Tour (${savedDate})`;
 
-              await addToQueue({
-                type: 'save_route',
-                payload: {
-                  routeId,
-                  userId,
-                  route: {
-                    id: routeId,
-                    user_id: userId,
-                    title,
-                    description: null,
-                    car_id: null,
-                    distance_km: draft.distanceKm,
-                    duration_seconds: draft.elapsedSeconds,
-                    polyline_json: draft.points,
-                    highlights_json: null,
-                    is_public: false,
-                  },
-                  waypoints: draft.waypoints.map((wp) => ({
-                    id: wp.id,
-                    data: {
-                      route_id: routeId,
-                      lat: wp.lat,
-                      lng: wp.lng,
-                      type: wp.type ?? null,
-                      note: wp.note ?? null,
+                await addToQueue({
+                  type: 'save_route',
+                  payload: {
+                    routeId,
+                    userId,
+                    route: {
+                      id: routeId,
+                      user_id: userId,
+                      title,
+                      description: null,
+                      car_id: null,
+                      distance_km: draft.distanceKm,
+                      duration_seconds: draft.elapsedSeconds,
+                      polyline_json: draft.points,
+                      highlights_json: null,
+                      is_public: false,
                     },
-                    localImageUri: wp.localImageUri,
-                  })),
-                },
-              });
+                    waypoints: draft.waypoints.map((wp) => ({
+                      id: wp.id,
+                      data: {
+                        route_id: routeId,
+                        lat: wp.lat,
+                        lng: wp.lng,
+                        type: wp.type ?? null,
+                        note: wp.note ?? null,
+                      },
+                      localImageUri: wp.localImageUri,
+                    })),
+                  },
+                });
 
-              await addLocalRoute({
-                id: routeId,
-                title,
-                description: null,
-                distanceKm: draft.distanceKm,
-                durationSeconds: draft.elapsedSeconds,
-                polylineJson: draft.points,
-                createdAt: new Date().toISOString(),
-                carId: null,
-              });
+                await addLocalRoute({
+                  id: routeId,
+                  title,
+                  description: null,
+                  distanceKm: draft.distanceKm,
+                  durationSeconds: draft.elapsedSeconds,
+                  polylineJson: draft.points,
+                  createdAt: new Date().toISOString(),
+                  carId: null,
+                });
 
-              await clearDraftRecording();
-              await refreshPendingCount();
-              showToast({
-                type: 'success',
-                message: 'Tour in Warteschlange gespeichert. Wird synchronisiert.',
-              });
+                await clearDraftRecording();
+                await refreshPendingCount();
+                showToast({
+                  type: 'success',
+                  message: 'Tour in Warteschlange gespeichert. Wird synchronisiert.',
+                });
+              } catch {
+                showToast({
+                  type: 'error',
+                  message: 'Aufzeichnung konnte nicht gespeichert werden.',
+                });
+              }
             },
           },
         ],

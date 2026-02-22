@@ -179,7 +179,11 @@ export async function compressImage(
   return result.uri;
 }
 
-// ── Upload / Delete ───────────────────────────────────────────────────────────
+// ── Upload / Delete ─────────────────────────────────────────────────────────
+
+function sanitizePathSegment(segment: string): string {
+  return segment.replace(/[^a-zA-Z0-9_-]/g, '');
+}──
 
 /**
  * Uploads a compressed image to Supabase Storage.
@@ -198,7 +202,12 @@ export async function uploadWaypointImage(
   if (!online) return null;
 
   const filename = `${Date.now()}.jpg`;
-  const storagePath = `${userId}/${waypointId}/${filename}`;
+  const safeUserId = sanitizePathSegment(userId);
+  const safeWaypointId = sanitizePathSegment(waypointId);
+  if (!safeUserId || !safeWaypointId) {
+    throw new Error('Invalid userId or waypointId for image upload');
+  }
+  const storagePath = `${safeUserId}/${safeWaypointId}/${filename}`;
 
   // Read file as ArrayBuffer for upload
   const response = await fetch(imageUri);

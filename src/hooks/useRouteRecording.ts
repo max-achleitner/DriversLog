@@ -90,6 +90,7 @@ export function useRouteRecording(
 ): UseRouteRecordingReturn {
   const [state, setState] = useState<RecordingState>(INITIAL_STATE);
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
+  const recordingCancelledRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const distanceRef = useRef(0);
   const pointsRef = useRef<GeoPoint[]>([]);
@@ -97,6 +98,7 @@ export function useRouteRecording(
   onLocationUpdateRef.current = options?.onLocationUpdate;
 
   const clearSubscriptions = useCallback(() => {
+    recordingCancelledRef.current = true;
     if (subscriptionRef.current) {
       subscriptionRef.current.remove();
       subscriptionRef.current = null;
@@ -132,6 +134,7 @@ export function useRouteRecording(
   // ── Recording controls ─────────────────────────────────────────────────────
 
   const startRecording = useCallback(async () => {
+    recordingCancelledRef.current = false;
     distanceRef.current = 0;
     pointsRef.current = [];
 
@@ -153,7 +156,7 @@ export function useRouteRecording(
       });
     }, 1000);
 
-    subscriptionRef.current = await Location.watchPositionAsync(
+    const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.High,
         distanceInterval: 10,
@@ -185,6 +188,13 @@ export function useRouteRecording(
         });
       },
     );
+
+    if (recordingCancelledRef.current) {
+      subscription.remove();
+      return;
+    }
+
+    subscriptionRef.current = subscription;
   }, []);
 
   const stopRecording = useCallback(() => {

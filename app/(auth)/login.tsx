@@ -30,14 +30,16 @@ export default function LoginScreen() {
     setLoading(true);
     setError(null);
 
-    const result = await signIn(email.trim(), password);
-
-    if (!result.success) {
-      setError(result.error.message);
-      showToast({ type: 'error', message: result.error.message });
+    try {
+      const result = await signIn(email.trim(), password);
+      if (!result.success) {
+        setError(result.error.message);
+        showToast({ type: 'error', message: result.error.message });
+      }
+      // Bei Erfolg uebernimmt der Auth-Guard in _layout.tsx die Navigation
+    } finally {
       setLoading(false);
     }
-    // Bei Erfolg uebernimmt der Auth-Guard in _layout.tsx die Navigation
   }
 
   return (
