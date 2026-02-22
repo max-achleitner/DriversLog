@@ -56,6 +56,9 @@ export default function RouteDetailScreen() {
   // Full-screen image viewer state
   const [viewerUri, setViewerUri] = useState<string | null>(null);
 
+  // Waypoint deletion guard (prevents double-tap)
+  const [deletingWaypointId, setDeletingWaypointId] = useState<string | null>(null);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -121,21 +124,31 @@ export default function RouteDetailScreen() {
   );
 
   const handleDeleteWaypoint = async (wp: Waypoint) => {
-    const userId = getCurrentUserId();
+    if (deletingWaypointId) return;  // prevent double-tap
+    setDeletingWaypointId(wp.id);
 
-    // Delete storage images first
-    if (wp.image_urls && wp.image_urls.length > 0) {
-      await deleteAllWaypointImages(userId, wp.id);
+    try {
+      // Image deletion is best-effort — don't block waypoint removal if it fails
+      if (wp.image_urls && wp.image_urls.length > 0) {
+        try {
+          const userId = getCurrentUserId();
+          await deleteAllWaypointImages(userId, wp.id);
+        } catch {
+          // Non-fatal: orphaned images are acceptable
+        }
+      }
+
+      const { error } = await supabase.from('waypoints').delete().eq('id', wp.id);
+      if (error) {
+        showToast({ type: 'error', message: 'Wegpunkt konnte nicht gelöscht werden.' });
+        return;
+      }
+
+      setWaypoints((prev) => prev.filter((w) => w.id !== wp.id));
+      showToast({ type: 'success', message: 'Wegpunkt gelöscht.' });
+    } finally {
+      setDeletingWaypointId(null);
     }
-
-    const { error } = await supabase.from('waypoints').delete().eq('id', wp.id);
-    if (error) {
-      showToast({ type: 'error', message: 'Wegpunkt konnte nicht gelöscht werden.' });
-      return;
-    }
-
-    setWaypoints((prev) => prev.filter((w) => w.id !== wp.id));
-    showToast({ type: 'success', message: 'Wegpunkt gelöscht.' });
   };
 
   if (loading) {
@@ -356,7 +369,8 @@ export default function RouteDetailScreen() {
                     {/* Delete button */}
                     <Pressable
                       onPress={() => handleDeleteWaypoint(wp)}
-                      style={{ padding: 8 }}
+                      disabled={deletingWaypointId === wp.id}
+                      style={{ padding: 8, opacity: deletingWaypointId === wp.id ? 0.4 : 1 }}
                       hitSlop={8}
                     >
                       <Ionicons name="trash-outline" size={18} color={theme.textMuted} />

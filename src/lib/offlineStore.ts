@@ -106,7 +106,7 @@ export async function getQueue(): Promise<PendingOperation[]> {
  * of the same type referencing the same route/car already exists, skips.
  * Returns the new operation's ID.
  */
-export async function addToQueue(op: OperationInput): Promise<string> {
+export async function addToQueue(op: OperationInput): Promise<string | null> {
   const queue = await getQueue();
 
   // Duplicate prevention for route saves
@@ -126,7 +126,7 @@ export async function addToQueue(op: OperationInput): Promise<string> {
     const alreadyQueued = queue.some(
       (item) => item.type === 'car_create' && (item.payload as CarCreatePayload).car.id === carId,
     );
-    if (alreadyQueued) return '';
+    if (alreadyQueued) return null;
   }
 
   if (op.type === 'car_delete') {
@@ -134,7 +134,7 @@ export async function addToQueue(op: OperationInput): Promise<string> {
     const alreadyQueued = queue.some(
       (item) => item.type === 'car_delete' && (item.payload as CarDeletePayload).carId === carId,
     );
-    if (alreadyQueued) return '';
+    if (alreadyQueued) return null;
   }
 
   const id = generateId();
@@ -208,13 +208,15 @@ export interface LocalRoute {
 }
 
 export async function addLocalRoute(route: LocalRoute): Promise<void> {
-  _localRoutesWriteLock = _localRoutesWriteLock.then(async () => {
+  const writePromise = _localRoutesWriteLock.then(async () => {
     const routes = await getLocalRoutes();
     if (routes.some((r) => r.id === route.id)) return;
     routes.push(route);
     await AsyncStorage.setItem(LOCAL_ROUTES_KEY, JSON.stringify(routes));
   });
-  await _localRoutesWriteLock;
+  // Always advance the lock to a resolved promise so future calls aren't blocked by a failure
+  _localRoutesWriteLock = writePromise.catch(() => {});
+  await writePromise;  // Let the caller see any actual errors
 }
 
 export async function getLocalRoutes(): Promise<LocalRoute[]> {

@@ -25,6 +25,7 @@ import {
   addLocalRoute,
   generateId,
 } from '../src/lib/offlineStore';
+import { supabase } from '../src/lib/supabase';
 
 /**
  * Innerstes Layout: hat Zugriff auf Auth, RaceMode, Sync und Router.
@@ -81,7 +82,12 @@ function InnerLayout() {
             text: 'Tour speichern',
             onPress: async () => {
               try {
-                const userId = session!.user.id;
+                const { data: { session: liveSession } } = await supabase.auth.getSession();
+                const userId = liveSession?.user.id;
+                if (!userId) {
+                  showToast({ type: 'error', message: 'Sitzung abgelaufen. Bitte neu einloggen.' });
+                  return;
+                }
                 const routeId = generateId();
                 const title = `Unterbrochene Tour (${savedDate})`;
 
@@ -189,14 +195,14 @@ function InnerLayout() {
           name="settings/index"
           options={{
             title: 'Einstellungen',
-            headerBackTitle: 'Zurueck',
+            headerBackTitle: 'Zurück',
           }}
         />
         <Stack.Screen
           name="route/[id]"
           options={{
             title: 'Tour-Details',
-            headerBackTitle: 'Zurueck',
+            headerBackTitle: 'Zurück',
           }}
         />
       </Stack>

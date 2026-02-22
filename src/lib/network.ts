@@ -21,11 +21,19 @@ interface NetworkStatus {
  */
 export function useNetworkStatus(): NetworkStatus {
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({
-    isConnected: true,
+    isConnected: true,       // optimistic default — corrected immediately by fetch()
     isInternetReachable: null,
   });
 
   useEffect(() => {
+    // Fetch the current state immediately so initial render is accurate
+    NetInfo.fetch().then((state) => {
+      setNetworkStatus({
+        isConnected: state.isConnected ?? true,
+        isInternetReachable: state.isInternetReachable,
+      });
+    });
+
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
       setNetworkStatus({
         isConnected: state.isConnected ?? true,
